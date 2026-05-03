@@ -1,0 +1,700 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum CompanyStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum AccountType {
+  SUPER_ADMIN
+  COMPANY_ADMIN
+  COMPANY_USER
+}
+
+enum PartyType {
+  VENDOR
+  CUSTOMER
+  BOTH
+}
+
+enum ItemType {
+  RAW
+  FINISHED
+}
+
+enum StockLedgerEntryType {
+  PURCHASE
+  ISSUE
+  PRODUCTION
+  INVOICE
+  RETURN
+  TRANSFER
+  SAMPLING
+}
+
+enum ProductionBatchStatus {
+  DRAFT
+  IN_PROCESS
+  QA_PENDING
+  RELEASED
+  BLOCKED
+}
+
+enum ProductionBmrStatus {
+  DRAFT
+  SUBMITTED
+}
+
+enum MaterialRequisitionStatus {
+  PENDING
+  APPROVED
+  ISSUED
+}
+
+enum StockMovementType {
+  ISSUE
+  SAMPLING
+  TRANSFER
+}
+
+enum ProformaInvoiceStatus {
+  PENDING
+  PARTIAL
+  COMPLETED
+  CLOSED
+}
+
+enum InvoiceStatus {
+  PARTIAL
+  COMPLETED
+}
+
+enum QualityIssueType {
+  DEFECT
+  TESTING
+  COMPLAINT
+}
+
+enum QualityRequestStatus {
+  PENDING
+  APPROVED
+  UNDER_TESTING
+  COMPLETED
+  CLOSED
+}
+
+enum QualityTestResult {
+  PASS
+  FAIL
+}
+
+enum QualityClosureDecision {
+  ACCEPT
+  REJECT
+}
+
+model Company {
+  id              String           @id @default(cuid())
+  name            String
+  code            String           @unique
+  contactEmail    String?
+  contactPhone    String?
+  address         String?
+  status          CompanyStatus    @default(ACTIVE)
+  adminUserId     String?          @unique
+  adminUser       User?            @relation("CompanyPrimaryAdmin", fields: [adminUserId], references: [id], onDelete: SetNull)
+  users           User[]           @relation("CompanyMembers")
+  departments     Department[]
+  designations    Designation[]
+  roles           Role[]
+  rolePermissions RolePermission[]
+  parties         Party[]
+  items           Item[]
+  purchaseGinSequence   Int               @default(0)
+  productionSequence    Int               @default(0)
+  mrsSequence           Int               @default(0)
+  stockMovementSequence Int               @default(0)
+  proformaInvoiceSequence Int             @default(0)
+  invoiceSequence       Int               @default(0)
+  qualityRequestSequence Int              @default(0)
+  purchaseGins    PurchaseGin[]
+  proformaInvoices ProformaInvoice[]
+  invoices        Invoice[]
+  qualityRequests QualityRequest[]
+  productionBatches ProductionBatch[]
+  materialRequisitions MaterialRequisition[]
+  stockMovements  StockMovement[]
+  stockLedgerEntries StockLedgerEntry[]
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+}
+
+model User {
+  id               String        @id @default(cuid())
+  email            String        @unique
+  passwordHash     String
+  accountType      AccountType
+  companyId        String?
+  company          Company?      @relation("CompanyMembers", fields: [companyId], references: [id], onDelete: SetNull)
+  primaryAdminOf   Company?      @relation("CompanyPrimaryAdmin")
+  fullName         String
+  employeeCode     String?
+  phone            String?
+  departmentId     String?
+  department       Department?   @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  designationId    String?
+  designation      Designation?  @relation(fields: [designationId], references: [id], onDelete: SetNull)
+  roleId           String?
+  role             Role?         @relation(fields: [roleId], references: [id], onDelete: SetNull)
+  isActive         Boolean       @default(true)
+  mustResetPassword Boolean      @default(false)
+  refreshTokens    RefreshToken[]
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  @@index([companyId])
+}
+
+model Department {
+  id         String   @id @default(cuid())
+  companyId  String
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name       String
+  code       String?
+  isActive   Boolean  @default(true)
+  users      User[]
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([companyId, name])
+  @@unique([companyId, code])
+}
+
+model Designation {
+  id         String   @id @default(cuid())
+  companyId  String
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name       String
+  isActive   Boolean  @default(true)
+  users      User[]
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([companyId, name])
+}
+
+model Role {
+  id          String           @id @default(cuid())
+  companyId   String
+  company     Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  isActive    Boolean          @default(true)
+  users       User[]
+  permissions RolePermission[]
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@unique([companyId, name])
+}
+
+model RolePermission {
+  id         String   @id @default(cuid())
+  companyId  String
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  roleId     String
+  role       Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  module     String
+  action     String
+  createdAt  DateTime @default(now())
+
+  @@unique([roleId, module, action])
+  @@index([companyId, module, action])
+}
+
+model Party {
+  id                  String    @id @default(cuid())
+  companyId           String
+  company             Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name                String
+  nameNormalized      String
+  partyType           PartyType
+  contactPerson       String?
+  phone               String?
+  altPhone            String?
+  email               String?
+  address1            String?
+  address2            String?
+  city                String?
+  state               String?
+  pincode             String?
+  gstNumber           String?
+  gstNumberNormalized String?
+  panNumber           String?
+  panNumberNormalized String?
+  openingBalance      Decimal   @default(0) @db.Decimal(18, 2)
+  creditLimit         Decimal   @default(0) @db.Decimal(18, 2)
+  remarks             String?
+  isActive            Boolean   @default(true)
+  purchaseGins        PurchaseGin[]
+  proformaInvoices    ProformaInvoice[]
+  invoices            Invoice[]
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@unique([companyId, nameNormalized])
+  @@unique([companyId, gstNumberNormalized])
+  @@unique([companyId, panNumberNormalized])
+  @@index([companyId, isActive, partyType, nameNormalized])
+  @@index([companyId, createdAt])
+  @@index([companyId, updatedAt])
+}
+
+model Item {
+  id                    String    @id @default(cuid())
+  companyId             String
+  company               Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  storeName             String
+  storeNameNormalized   String
+  tallyName             String
+  tallyNameNormalized   String
+  sku                   String?
+  skuNormalized         String?
+  itemType              ItemType
+  category              String?
+  baseUnit              String
+  hsnCode               String?
+  gstRate               Decimal   @default(0) @db.Decimal(5, 2)
+  isActive              Boolean   @default(true)
+  purchaseGinItems      PurchaseGinItem[]
+  proformaInvoiceItems  ProformaInvoiceItem[]
+  invoiceItems          InvoiceItem[]
+  productionBatches     ProductionBatch[]
+  materialRequisitionItems MaterialRequisitionItem[]
+  stockMovementItems    StockMovementItem[]
+  stockLedgerEntries    StockLedgerEntry[]
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@unique([companyId, storeNameNormalized])
+  @@unique([companyId, tallyNameNormalized])
+  @@unique([companyId, skuNormalized])
+  @@index([companyId, isActive, itemType, storeNameNormalized])
+  @@index([companyId, category])
+  @@index([companyId, baseUnit])
+  @@index([companyId, createdAt])
+  @@index([companyId, updatedAt])
+}
+
+model PurchaseGin {
+  id                  String            @id @default(cuid())
+  companyId           String
+  company             Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  ginNo               String
+  ginSequence         Int
+  vendorId            String
+  vendor              Party             @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  vendorName          String
+  challanNo           String
+  challanDate         DateTime          @db.Date
+  billNo              String
+  billDate            DateTime          @db.Date
+  gateEntryNo         String
+  entryDate           DateTime          @db.Date
+  preparedBy          String?
+  sanctionedBy        String?
+  authorizedSignatory String?
+  totalAmount         Decimal           @db.Decimal(18, 2)
+  totalAcceptedQty    Decimal           @db.Decimal(18, 3)
+  totalRejectedQty    Decimal           @db.Decimal(18, 3)
+  items               PurchaseGinItem[]
+  ledgerEntries       StockLedgerEntry[]
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  @@unique([companyId, ginNo])
+  @@unique([companyId, ginSequence])
+  @@index([companyId, entryDate])
+  @@index([companyId, vendorId, entryDate])
+  @@index([companyId, createdAt])
+}
+
+model PurchaseGinItem {
+  id            String      @id @default(cuid())
+  purchaseGinId String
+  purchaseGin   PurchaseGin @relation(fields: [purchaseGinId], references: [id], onDelete: Cascade)
+  itemId        String
+  item          Item        @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  lineNo        Int
+  itemName      String
+  itemType      ItemType
+  baseUnit      String
+  ulpQty        Decimal     @db.Decimal(18, 3)
+  billQty       Decimal     @db.Decimal(18, 3)
+  receivedQty   Decimal     @db.Decimal(18, 3)
+  acceptedQty   Decimal     @db.Decimal(18, 3)
+  rejectedQty   Decimal     @db.Decimal(18, 3)
+  batchNo       String
+  mfgDate       DateTime    @db.Date
+  expiryDate    DateTime    @db.Date
+  rate          Decimal     @db.Decimal(18, 2)
+  amount        Decimal     @db.Decimal(18, 2)
+  remarks       String?
+  createdAt     DateTime    @default(now())
+
+  @@unique([purchaseGinId, lineNo])
+  @@index([itemId])
+}
+
+model ProformaInvoice {
+  id                  String                @id @default(cuid())
+  companyId           String
+  company             Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customerId          String
+  customer            Party                 @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  piNo                String
+  piSequence          Int
+  date                DateTime              @db.Date
+  status              ProformaInvoiceStatus @default(PENDING)
+  customerName        String
+  customerContactPerson String?
+  customerPhone       String?
+  customerEmail       String?
+  customerAddress1    String?
+  customerAddress2    String?
+  customerCity        String?
+  customerState       String?
+  customerPincode     String?
+  customerGstNumber   String?
+  customerPanNumber   String?
+  totalQuantity       Decimal               @db.Decimal(18, 3)
+  totalAmount         Decimal               @db.Decimal(18, 2)
+  items               ProformaInvoiceItem[]
+  invoices            Invoice[]
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+
+  @@unique([companyId, piNo])
+  @@unique([companyId, piSequence])
+  @@index([companyId, status, date])
+  @@index([companyId, customerId, date])
+  @@index([companyId, createdAt])
+}
+
+model ProformaInvoiceItem {
+  id                String             @id @default(cuid())
+  proformaInvoiceId String
+  proformaInvoice   ProformaInvoice    @relation(fields: [proformaInvoiceId], references: [id], onDelete: Cascade)
+  itemId            String
+  item              Item               @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  lineNo            Int
+  itemName          String
+  unit              String
+  quantity          Decimal            @db.Decimal(18, 3)
+  invoicedQty       Decimal            @default(0) @db.Decimal(18, 3)
+  rate              Decimal            @db.Decimal(18, 2)
+  amount            Decimal            @db.Decimal(18, 2)
+  remarks           String?
+  invoiceItems      InvoiceItem[]
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  @@unique([proformaInvoiceId, lineNo])
+  @@index([itemId])
+}
+
+model Invoice {
+  id                    String         @id @default(cuid())
+  companyId             String
+  company               Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  proformaInvoiceId     String
+  proformaInvoice       ProformaInvoice @relation(fields: [proformaInvoiceId], references: [id], onDelete: Restrict)
+  customerId            String
+  customer              Party          @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  invoiceNo             String
+  invoiceSequence       Int
+  date                  DateTime       @db.Date
+  status                InvoiceStatus  @default(PARTIAL)
+  customerName          String
+  customerContactPerson String?
+  customerPhone         String?
+  customerEmail         String?
+  customerAddress1      String?
+  customerAddress2      String?
+  customerCity          String?
+  customerState         String?
+  customerPincode       String?
+  customerGstNumber     String?
+  customerPanNumber     String?
+  totalQuantity         Decimal        @db.Decimal(18, 3)
+  totalAmount           Decimal        @db.Decimal(18, 2)
+  taxAmount             Decimal        @db.Decimal(18, 2)
+  items                 InvoiceItem[]
+  ledgerEntries         StockLedgerEntry[]
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+
+  @@unique([companyId, invoiceNo])
+  @@unique([companyId, invoiceSequence])
+  @@index([companyId, proformaInvoiceId, date])
+  @@index([companyId, customerId, date])
+  @@index([companyId, status, date])
+  @@index([companyId, createdAt])
+}
+
+model InvoiceItem {
+  id                  String               @id @default(cuid())
+  invoiceId           String
+  invoice             Invoice              @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  proformaInvoiceItemId String
+  proformaInvoiceItem ProformaInvoiceItem  @relation(fields: [proformaInvoiceItemId], references: [id], onDelete: Restrict)
+  itemId              String
+  item                Item                 @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  lineNo              Int
+  itemName            String
+  unit                String
+  batchNo             String
+  quantity            Decimal              @db.Decimal(18, 3)
+  rate                Decimal              @db.Decimal(18, 2)
+  taxPercent          Decimal              @db.Decimal(5, 2)
+  amount              Decimal              @db.Decimal(18, 2)
+  createdAt           DateTime             @default(now())
+
+  @@unique([invoiceId, lineNo])
+  @@index([proformaInvoiceItemId])
+  @@index([itemId])
+  @@index([itemId, batchNo])
+}
+
+model StockLedgerEntry {
+  id            String              @id @default(cuid())
+  companyId     String
+  company       Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  purchaseGinId String?
+  purchaseGin   PurchaseGin?        @relation(fields: [purchaseGinId], references: [id], onDelete: SetNull)
+  productionBatchId String?
+  productionBatch ProductionBatch?  @relation(fields: [productionBatchId], references: [id], onDelete: SetNull)
+  stockMovementId String?
+  stockMovement StockMovement?      @relation(fields: [stockMovementId], references: [id], onDelete: SetNull)
+  invoiceId     String?
+  invoice       Invoice?            @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  itemId        String
+  item          Item                @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  date          DateTime            @db.Date
+  referenceNo   String
+  type          StockLedgerEntryType
+  particulars   String
+  itemName      String
+  itemCategory  ItemType
+  batchNo       String
+  mfgDate       DateTime            @db.Date
+  expiryDate    DateTime            @db.Date
+  receiptQty    Decimal             @db.Decimal(18, 3)
+  issueQty      Decimal             @db.Decimal(18, 3)
+  rate          Decimal             @db.Decimal(18, 2)
+  remarks       String?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  @@index([companyId, date])
+  @@index([companyId, type, date])
+  @@index([companyId, itemId, batchNo, date])
+  @@index([companyId, referenceNo])
+  @@index([companyId, productionBatchId])
+  @@index([companyId, stockMovementId])
+  @@index([companyId, invoiceId])
+}
+
+model ProductionBatch {
+  id            String               @id @default(cuid())
+  companyId      String
+  company        Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  itemId         String
+  item           Item                 @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  productionNo   String
+  productionSequence Int
+  batchNo        String
+  productName    String
+  batchSize      String
+  startDate      DateTime             @db.Date
+  mfgDate        DateTime             @db.Date
+  expDate        DateTime             @db.Date
+  status         ProductionBatchStatus @default(DRAFT)
+  expectedQty    Decimal?             @db.Decimal(18, 3)
+  actualQty      Decimal?             @db.Decimal(18, 3)
+  rejectedQty    Decimal?             @db.Decimal(18, 3)
+  qaApprovedBy   String?
+  qaRemarks      String?
+  qaDecidedAt    DateTime?
+  bmr            ProductionBmr?
+  materialRequisitions MaterialRequisition[]
+  stockMovements StockMovement[]
+  stockLedgerEntries StockLedgerEntry[]
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  @@unique([companyId, productionNo])
+  @@unique([companyId, productionSequence])
+  @@unique([companyId, batchNo])
+  @@index([companyId, status, createdAt])
+  @@index([companyId, itemId, status])
+}
+
+model ProductionBmr {
+  id               String              @id @default(cuid())
+  productionBatchId String             @unique
+  productionBatch   ProductionBatch    @relation(fields: [productionBatchId], references: [id], onDelete: Cascade)
+  status           ProductionBmrStatus @default(DRAFT)
+  payload          Json
+  submittedAt      DateTime?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+}
+
+model MaterialRequisition {
+  id               String                    @id @default(cuid())
+  companyId        String
+  company          Company                   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  productionBatchId String
+  productionBatch  ProductionBatch           @relation(fields: [productionBatchId], references: [id], onDelete: Cascade)
+  mrsNo            String
+  mrsSequence      Int
+  date             DateTime                  @db.Date
+  department       String
+  requisitionBy    String
+  approvedBy       String?
+  approvedAt       DateTime?
+  status           MaterialRequisitionStatus @default(PENDING)
+  items            MaterialRequisitionItem[]
+  stockMovements   StockMovement[]
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
+
+  @@unique([companyId, mrsNo])
+  @@unique([companyId, mrsSequence])
+  @@index([companyId, productionBatchId, createdAt])
+  @@index([companyId, status, createdAt])
+}
+
+model MaterialRequisitionItem {
+  id                  String              @id @default(cuid())
+  materialRequisitionId String
+  materialRequisition  MaterialRequisition @relation(fields: [materialRequisitionId], references: [id], onDelete: Cascade)
+  itemId              String
+  item                Item                @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  lineNo              Int
+  itemName            String
+  unit                String
+  qtyRequested        Decimal             @db.Decimal(18, 3)
+  qtyIssued           Decimal             @default(0) @db.Decimal(18, 3)
+  remarks             String?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+
+  @@unique([materialRequisitionId, lineNo])
+  @@index([itemId])
+}
+
+model StockMovement {
+  id               String            @id @default(cuid())
+  companyId        String
+  company          Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  productionBatchId String?
+  productionBatch  ProductionBatch?  @relation(fields: [productionBatchId], references: [id], onDelete: SetNull)
+  materialRequisitionId String?
+  materialRequisition MaterialRequisition? @relation(fields: [materialRequisitionId], references: [id], onDelete: SetNull)
+  movementNo       String
+  movementSequence Int
+  type             StockMovementType
+  date             DateTime          @db.Date
+  fromLocation     String?
+  toLocation       String?
+  issuedBy         String?
+  sampleDrawnBy    String?
+  remarks          String?
+  items            StockMovementItem[]
+  stockLedgerEntries StockLedgerEntry[]
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@unique([companyId, movementNo])
+  @@unique([companyId, movementSequence])
+  @@index([companyId, type, createdAt])
+  @@index([companyId, productionBatchId, createdAt])
+  @@index([companyId, materialRequisitionId, createdAt])
+}
+
+model StockMovementItem {
+  id              String        @id @default(cuid())
+  stockMovementId String
+  stockMovement   StockMovement @relation(fields: [stockMovementId], references: [id], onDelete: Cascade)
+  itemId          String
+  item            Item          @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  lineNo          Int
+  itemName        String
+  unit            String
+  batchNo         String
+  availableQty    Decimal       @db.Decimal(18, 3)
+  quantity        Decimal       @db.Decimal(18, 3)
+  mfgDate         DateTime      @db.Date
+  expiryDate      DateTime      @db.Date
+  requestedQty    Decimal?      @db.Decimal(18, 3)
+  remarks         String?
+  createdAt       DateTime      @default(now())
+
+  @@unique([stockMovementId, lineNo])
+  @@index([itemId])
+  @@index([itemId, batchNo])
+}
+
+model QualityRequest {
+  id              String                 @id @default(cuid())
+  companyId       String
+  company         Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  requestNo       String
+  requestSequence Int
+  date            DateTime               @db.Date
+  itemName        String
+  batchNo         String
+  quantity        Decimal?               @db.Decimal(18, 3)
+  issueType       QualityIssueType
+  description     String
+  remarks         String?
+  requestedBy     String
+  status          QualityRequestStatus   @default(PENDING)
+  approvedBy      String?
+  approvalRemarks String?
+  testParameters  String?
+  observations    String?
+  testResult      QualityTestResult?
+  attachments     String[]               @default([])
+  closureDecision QualityClosureDecision?
+  closureRemarks  String?
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+
+  @@unique([companyId, requestNo])
+  @@unique([companyId, requestSequence])
+  @@index([companyId, status, date])
+  @@index([companyId, batchNo, date])
+  @@index([companyId, itemName, date])
+}
+
+model RefreshToken {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash  String   @unique
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+}
