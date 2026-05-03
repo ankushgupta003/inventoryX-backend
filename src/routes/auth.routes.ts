@@ -13,7 +13,6 @@ import {
 } from '../lib/tokens';
 import { requireAuth } from '../middleware/auth';
 import { authUserInclude, buildAuthPayload, buildAuthResponse } from '../utils/authPayload';
-import { ensureSuperAdminSeeded } from '../bootstrap/ensureSuperAdmin';
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -45,8 +44,6 @@ async function issueTokens(userId: string, accountType: AccountType, companyId: 
 }
 
 async function authenticate(email: string, password: string, expectedAccountType?: AccountType) {
-  await ensureSuperAdminSeeded();
-
   const user = await prisma.user.findUnique({
     where: { email: email.toLowerCase() },
     include: authUserInclude,
