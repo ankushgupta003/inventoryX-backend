@@ -1,5 +1,12 @@
 import { z } from 'zod';
-import { defaultSortOrder, optionalTrimmedString, parsePaginateFlag, requiredTrimmedString } from '../shared/masterData';
+import {
+  defaultSortOrder,
+  optionalDateTextSchema,
+  optionalTrimmedString,
+  parsePaginateFlag,
+  requiredTrimmedString,
+  toComparableIsoDate,
+} from '../shared/masterData';
 
 export const ledgerListQuerySchema = z
   .object({
@@ -52,8 +59,8 @@ const ledgerEntryCreateSchema = z
       z.enum(['RAW', 'FINISHED']),
     ),
     batchNo: requiredTrimmedString(120, 'Batch no is required'),
-    mfgDate: dateStringSchema,
-    expiryDate: dateStringSchema,
+    mfgDate: optionalDateTextSchema(),
+    expiryDate: optionalDateTextSchema(),
     receiptQty: qtySchema.default(0),
     issueQty: qtySchema.default(0),
     rate: amountSchema.default(0),
@@ -76,7 +83,9 @@ const ledgerEntryCreateSchema = z
       });
     }
 
-    if (value.expiryDate < value.mfgDate) {
+    const comparableMfgDate = toComparableIsoDate(value.mfgDate);
+    const comparableExpiryDate = toComparableIsoDate(value.expiryDate);
+    if (comparableMfgDate && comparableExpiryDate && comparableExpiryDate < comparableMfgDate) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['expiryDate'],

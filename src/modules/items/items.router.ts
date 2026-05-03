@@ -3,15 +3,37 @@ import { prisma } from '../../lib/prisma';
 import { AppError } from '../../errors/AppError';
 import { requirePermission } from '../../middleware/permissions';
 import { mapUniqueConstraintError } from '../shared/masterData';
-import { itemListQuerySchema, itemStatusSchema, itemUpsertSchema } from './items.schemas';
+import { itemCategoryOptionsQuerySchema, itemListQuerySchema, itemStatusSchema, itemUpsertSchema } from './items.schemas';
 import {
   buildItemCreateData,
   buildItemOrderBy,
   buildItemWhere,
+  serializeItemCategory,
   serializeItem,
+  toItemType,
 } from './items.utils';
 
 export const itemsRouter = Router();
+
+async function ensureItemCategory(companyId: string, payload: { categoryId?: string; itemType: 'raw' | 'finished' }) {
+  if (!payload.categoryId) {
+    return null;
+  }
+
+  const category = await prisma.itemCategory.findFirst({
+    where: {
+      id: payload.categoryId,
+      companyId,
+      itemType: toItemType(payload.itemType),
+    },
+  });
+
+  if (!category) {
+    throw new AppError(400, 'Selected category is invalid for this item type');
+  }
+
+  return category.id;
+}
 
 itemsRouter.get('/', requirePermission('items.view'), async (req, res, next) => {
   try {
@@ -21,6 +43,16 @@ itemsRouter.get('/', requirePermission('items.view'), async (req, res, next) => 
     const filteredTotalPromise = prisma.item.count({ where });
     const itemsPromise = prisma.item.findMany({
       where,
+      include: {
+        categoryMaster: {
+          select: {
+            id: true,
+            name: true,
+            isActive: true,
+            itemType: true,
+          },
+        },
+      },
       orderBy: buildItemOrderBy(query.sortBy, query.sortOrder),
       ...(query.paginate
         ? {
@@ -83,6 +115,24 @@ itemsRouter.get('/', requirePermission('items.view'), async (req, res, next) => 
   }
 });
 
+itemsRouter.get('/category-options', requirePermission('items.view'), async (req, res, next) => {
+  try {
+    const query = itemCategoryOptionsQuerySchema.parse(req.query);
+    const companyId = req.auth!.companyId!;
+    const categories = await prisma.itemCategory.findMany({
+      where: {
+        companyId,
+        ...(query.itemType !== 'all' ? { itemType: toItemType(query.itemType) } : {}),
+      },
+      orderBy: [{ itemType: 'asc' }, { nameNormalized: 'asc' }],
+    });
+
+    res.json({ data: categories.map(serializeItemCategory) });
+  } catch (error) {
+    next(error);
+  }
+});
+
 itemsRouter.get('/:id', requirePermission('items.view'), async (req, res, next) => {
   try {
     const itemId = String(req.params.id);
@@ -90,6 +140,16 @@ itemsRouter.get('/:id', requirePermission('items.view'), async (req, res, next) 
       where: {
         id: itemId,
         companyId: req.auth!.companyId!,
+      },
+      include: {
+        categoryMaster: {
+          select: {
+            id: true,
+            name: true,
+            isActive: true,
+            itemType: true,
+          },
+        },
       },
     });
 
@@ -106,8 +166,20 @@ itemsRouter.get('/:id', requirePermission('items.view'), async (req, res, next) 
 itemsRouter.post('/', requirePermission('items.create'), async (req, res, next) => {
   try {
     const payload = itemUpsertSchema.parse(req.body);
+    const companyId = req.auth!.companyId!;
+    const categoryId = await ensureItemCategory(companyId, payload);
     const item = await prisma.item.create({
-      data: buildItemCreateData(req.auth!.companyId!, payload),
+      data: buildItemCreateData(companyId, { ...payload, categoryId: categoryId ?? undefined }),
+      include: {
+        categoryMaster: {
+          select: {
+            id: true,
+            name: true,
+            isActive: true,
+            itemType: true,
+          },
+        },
+      },
     });
 
     res.status(201).json({ data: serializeItem(item) });
@@ -146,9 +218,21 @@ itemsRouter.put('/:id', requirePermission('items.edit'), async (req, res, next) 
       throw new AppError(404, 'Item not found');
     }
 
+    const categoryId = await ensureItemCategory(companyId, payload);
+
     const updated = await prisma.item.update({
       where: { id: item.id },
-      data: buildItemCreateData(companyId, payload),
+      data: buildItemCreateData(companyId, { ...payload, categoryId: categoryId ?? undefined }),
+      include: {
+        categoryMaster: {
+          select: {
+            id: true,
+            name: true,
+            isActive: true,
+            itemType: true,
+          },
+        },
+      },
     });
 
     res.json({ data: serializeItem(updated) });

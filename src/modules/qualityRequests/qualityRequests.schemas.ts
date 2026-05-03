@@ -15,6 +15,11 @@ const attachmentSchema = z.string().trim().min(1, 'Attachment name is required')
 export const qualityRequestListQuerySchema = z.object({
   search: z.preprocess((value) => (typeof value === 'string' ? value.trim() : value), z.string().max(150).default('')),
   status: z.enum(['all', 'pending', 'approved', 'under_testing', 'completed', 'closed']).default('all'),
+  sourceType: z.enum(['all', 'sampling']).default('all'),
+  stockMovementId: z.preprocess(
+    (value) => (typeof value === 'string' ? value.trim() : value),
+    z.string().max(100).default(''),
+  ),
 });
 
 export const qualityRequestCreateSchema = z.object({

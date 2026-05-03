@@ -1,9 +1,18 @@
-import { ItemType, ProductionBatchStatus, StockMovementType } from '@prisma/client';
+import {
+  ItemType,
+  Prisma,
+  ProductionBatchStatus,
+  QualityIssueType,
+  QualityRequestSourceType,
+  QualityRequestStatus,
+  StockMovementType,
+} from '@prisma/client';
 import { Router } from 'express';
 import { AppError } from '../../errors/AppError';
 import { prisma } from '../../lib/prisma';
 import { requirePermission } from '../../middleware/permissions';
 import { stockMovementCreateSchema, stockMovementListQuerySchema } from '../production/production.schemas';
+import { decimalToNumber } from '../shared/masterData';
 import {
   buildLedgerEntryData,
   formatMovementNo,
@@ -17,12 +26,15 @@ import {
 
 export const stockMovementsRouter = Router();
 
-async function findStockMovementOrThrow(companyId: string, id: string) {
-  const record = await prisma.stockMovement.findFirst({
-    where: {
-      id,
-      companyId,
+const stockMovementInclude = {
+  productionBatch: {
+    select: {
+      id: true,
+      batchNo: true,
+      productionNo: true,
     },
+  },
+  materialRequisition: {
     include: {
       productionBatch: {
         select: {
@@ -31,20 +43,29 @@ async function findStockMovementOrThrow(companyId: string, id: string) {
           productionNo: true,
         },
       },
-      materialRequisition: {
-        include: {
-          productionBatch: {
-            select: {
-              id: true,
-              batchNo: true,
-              productionNo: true,
-            },
-          },
-          items: true,
-        },
-      },
       items: true,
     },
+  },
+  items: true,
+  qualityRequests: {
+    orderBy: { createdAt: 'asc' },
+    select: {
+      id: true,
+      requestNo: true,
+      status: true,
+      itemName: true,
+      batchNo: true,
+    },
+  },
+} satisfies Prisma.StockMovementInclude;
+
+async function findStockMovementOrThrow(companyId: string, id: string) {
+  const record = await prisma.stockMovement.findFirst({
+    where: {
+      id,
+      companyId,
+    },
+    include: stockMovementInclude,
   });
 
   if (!record) {
@@ -64,28 +85,7 @@ stockMovementsRouter.get('/', requirePermission('stock_movement.view'), async (r
         ...(query.productionBatchId ? { productionBatchId: query.productionBatchId } : {}),
         ...(query.materialRequisitionId ? { materialRequisitionId: query.materialRequisitionId } : {}),
       },
-      include: {
-        productionBatch: {
-          select: {
-            id: true,
-            batchNo: true,
-            productionNo: true,
-          },
-        },
-        materialRequisition: {
-          include: {
-            productionBatch: {
-              select: {
-                id: true,
-                batchNo: true,
-                productionNo: true,
-              },
-            },
-            items: true,
-          },
-        },
-        items: true,
-      },
+      include: stockMovementInclude,
       orderBy: [{ createdAt: 'desc' }],
     });
 
@@ -122,7 +122,11 @@ stockMovementsRouter.post('/', requirePermission('stock_movement.create'), async
 
     payload.items.forEach((line, index) => {
       const item = itemMap.get(line.itemId);
-      if (!item || !item.isActive || item.itemType !== ItemType.RAW) {
+      if (!item || !item.isActive) {
+        throw new AppError(400, `Movement line ${index + 1} must reference an active item`);
+      }
+
+      if (payload.type !== 'sampling' && item.itemType !== ItemType.RAW) {
         throw new AppError(400, `Movement line ${index + 1} must reference an active raw item`);
       }
     });
@@ -260,8 +264,8 @@ stockMovementsRouter.post('/', requirePermission('stock_movement.create'), async
                 batchNo: line.batchNo,
                 availableQty: toQtyDecimal(snapshot.availableQty),
                 quantity: toQtyDecimal(line.quantity),
-                mfgDate: parseDateOnly(snapshot.mfgDate),
-                expiryDate: parseDateOnly(snapshot.expiryDate),
+                mfgDate: snapshot.mfgDate || null,
+                expiryDate: snapshot.expiryDate || null,
                 requestedQty: materialRequisition
                   ? toQtyDecimal(Number(materialRequisition.items.find((mrsItem) => mrsItem.itemId === item.id)?.qtyRequested ?? 0))
                   : null,
@@ -270,28 +274,7 @@ stockMovementsRouter.post('/', requirePermission('stock_movement.create'), async
             }),
           },
         },
-        include: {
-          productionBatch: {
-            select: {
-              id: true,
-              batchNo: true,
-              productionNo: true,
-            },
-          },
-          materialRequisition: {
-            include: {
-              productionBatch: {
-                select: {
-                  id: true,
-                  batchNo: true,
-                  productionNo: true,
-                },
-              },
-              items: true,
-            },
-          },
-          items: true,
-        },
+        include: stockMovementInclude,
       });
 
       if (movementType === 'ISSUE' && materialRequisition) {
@@ -352,7 +335,7 @@ stockMovementsRouter.post('/', requirePermission('stock_movement.create'), async
                   ? materialRequisition?.mrsNo ?? 'Material Issue'
                   : `${payload.fromLocation ?? 'Store'} -> ${payload.toLocation ?? (movementType === 'TRANSFER' ? 'Store' : 'QC')}`,
               itemName: item.storeName,
-              itemCategory: 'RAW',
+              itemCategory: movementType === 'SAMPLING' && item.itemType === ItemType.FINISHED ? 'FINISHED' : 'RAW',
               batchNo: line.batchNo,
               mfgDate: snapshot.mfgDate,
               expiryDate: snapshot.expiryDate,
@@ -362,6 +345,45 @@ stockMovementsRouter.post('/', requirePermission('stock_movement.create'), async
               remarks: line.remarks ?? payload.remarks ?? '',
             });
           }),
+        });
+      }
+
+      if (movementType === 'SAMPLING') {
+        const qualitySequenceState = await tx.company.update({
+          where: { id: companyId },
+          data: {
+            qualityRequestSequence: {
+              increment: movement.items.length,
+            },
+          },
+          select: {
+            qualityRequestSequence: true,
+          },
+        });
+
+        const requestStartSequence = qualitySequenceState.qualityRequestSequence - movement.items.length + 1;
+
+        await tx.qualityRequest.createMany({
+          data: movement.items.map((movementItem, index) => ({
+            companyId,
+            sourceType: QualityRequestSourceType.SAMPLING,
+            stockMovementId: movement.id,
+            stockMovementItemId: movementItem.id,
+            itemId: movementItem.itemId,
+            productionBatchId: productionBatch?.id ?? null,
+            requestNo: `QREQ-${String(requestStartSequence + index).padStart(5, '0')}`,
+            requestSequence: requestStartSequence + index,
+            date: parseDateOnly(payload.date),
+            itemName: movementItem.itemName,
+            batchNo: movementItem.batchNo,
+            quantity: toQtyDecimal(decimalToNumber(movementItem.quantity)),
+            issueType: QualityIssueType.TESTING,
+            description: `Auto-created from sampling movement ${movementNo}`,
+            remarks: payload.remarks ?? movementItem.remarks ?? null,
+            requestedBy: payload.sampleDrawnBy ?? payload.issuedBy ?? req.auth!.fullName,
+            status: QualityRequestStatus.PENDING,
+            attachments: [],
+          })),
         });
       }
 

@@ -67,6 +67,41 @@ export function normalizeLookupValue(value: string) {
   return value.trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
+export const dateTextPattern = /^(?:\d{4}-\d{2}-\d{2}|\d{2}\/\d{2}\/\d{4}|\d{2}\/\d{4})$/;
+
+export function normalizeDateText(value?: string | null) {
+  if (value === undefined || value === null) return null;
+  const trimmed = value.trim();
+  return trimmed === '' ? null : trimmed;
+}
+
+export function optionalDateTextSchema(max = 20) {
+  return z.preprocess(
+    toOptionalTrimmedString,
+    z
+      .string()
+      .max(max)
+      .refine((value) => !value || dateTextPattern.test(value), 'Use MM/YYYY, DD/MM/YYYY, or YYYY-MM-DD')
+      .optional(),
+  );
+}
+
+export function toComparableIsoDate(value?: string | null) {
+  const normalized = normalizeDateText(value);
+  if (!normalized) return null;
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    return normalized;
+  }
+
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(normalized)) {
+    const [day, month, year] = normalized.split('/');
+    return `${year}-${month}-${day}`;
+  }
+
+  return null;
+}
+
 export function toNullableString(value?: string) {
   return value ?? null;
 }

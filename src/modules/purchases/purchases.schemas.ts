@@ -1,9 +1,11 @@
 import { z } from 'zod';
 import {
   defaultSortOrder,
+  optionalDateTextSchema,
   optionalTrimmedString,
   parsePaginateFlag,
   requiredTrimmedString,
+  toComparableIsoDate,
 } from '../shared/masterData';
 
 const dateStringSchema = z
@@ -21,6 +23,7 @@ const optionalDateFilterSchema = z.preprocess(
 
 const quantitySchema = z.coerce.number().min(0, 'Cannot be negative');
 const amountSchema = z.coerce.number().min(0, 'Cannot be negative');
+const taxRateSchema = z.coerce.number().min(0, 'Cannot be negative').max(100, 'Cannot exceed 100');
 
 export const purchaseGinItemSchema = z
   .object({
@@ -31,9 +34,13 @@ export const purchaseGinItemSchema = z
     acceptedQty: quantitySchema,
     rejectedQty: quantitySchema,
     batchNo: requiredTrimmedString(100, 'Batch is required'),
-    mfgDate: dateStringSchema,
-    expiryDate: dateStringSchema,
+    mfgDate: optionalDateTextSchema(),
+    expiryDate: optionalDateTextSchema(),
     rate: amountSchema,
+    taxableValue: amountSchema,
+    cgstRate: taxRateSchema,
+    sgstRate: taxRateSchema,
+    igstRate: taxRateSchema,
     remarks: optionalTrimmedString(500),
   })
   .superRefine((value, ctx) => {
@@ -46,11 +53,21 @@ export const purchaseGinItemSchema = z
       });
     }
 
-    if (value.expiryDate < value.mfgDate) {
+    const comparableMfgDate = toComparableIsoDate(value.mfgDate);
+    const comparableExpiryDate = toComparableIsoDate(value.expiryDate);
+    if (comparableMfgDate && comparableExpiryDate && comparableExpiryDate < comparableMfgDate) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['expiryDate'],
         message: 'Expiry date cannot be before MFG date',
+      });
+    }
+
+    if (value.igstRate > 0 && (value.cgstRate > 0 || value.sgstRate > 0)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['igstRate'],
+        message: 'Use IGST or CGST/SGST for a line, not both',
       });
     }
   });

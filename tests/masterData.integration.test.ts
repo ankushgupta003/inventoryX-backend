@@ -245,15 +245,52 @@ describeIfDb('party and item master integration', () => {
     return response.body.data;
   }
 
+  async function ensureItemCategory(
+    app: ReturnType<CreateApp>,
+    token: string,
+    input: { name: string; itemType: ItemPayload['itemType'] },
+  ) {
+    const created = await request(app)
+      .post('/admin/item-categories')
+      .set(authHeader(token))
+      .send(input);
+
+    if (created.status === 201) {
+      return created.body.data.id as string;
+    }
+
+    expect(created.status).toBe(409);
+
+    const existing = await request(app)
+      .get('/admin/item-categories')
+      .set(authHeader(token));
+
+    expect(existing.status).toBe(200);
+    const match = existing.body.data.find(
+      (category: { id: string; name: string; itemType: ItemPayload['itemType'] }) =>
+        category.name === input.name && category.itemType === input.itemType,
+    );
+    expect(match).toBeTruthy();
+    return match.id as string;
+  }
+
   async function createItem(
     app: ReturnType<CreateApp>,
     token: string,
     overrides: Partial<ItemPayload> = {},
   ) {
+    const payload = { ...baseItemPayload, ...overrides };
+    const categoryId = await ensureItemCategory(app, token, {
+      name: payload.category,
+      itemType: payload.itemType,
+    });
     const response = await request(app)
       .post('/items')
       .set(authHeader(token))
-      .send({ ...baseItemPayload, ...overrides });
+      .send({
+        ...payload,
+        categoryId,
+      });
 
     expect(response.status).toBe(201);
     return response.body.data;

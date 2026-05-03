@@ -1,10 +1,11 @@
 import { Router } from 'express';
-import { AccountType } from '@prisma/client';
+import { AccountType, ItemType } from '@prisma/client';
 import { z } from 'zod';
 import { AppError } from '../errors/AppError';
 import { prisma } from '../lib/prisma';
 import { hashPassword } from '../lib/password';
 import { generateTemporaryPassword } from '../lib/random';
+import { mapUniqueConstraintError, normalizeLookupValue } from '../modules/shared/masterData';
 import { permissionCatalog, normalizePermissionKeys, splitPermissionKey } from '../utils/permissions';
 
 const baseMasterSchema = z.object({
@@ -20,6 +21,12 @@ const departmentUpdateSchema = departmentCreateSchema.partial();
 
 const designationCreateSchema = baseMasterSchema;
 const designationUpdateSchema = designationCreateSchema.partial();
+
+const itemCategoryCreateSchema = baseMasterSchema.extend({
+  itemType: z.enum(['raw', 'finished']),
+});
+
+const itemCategoryUpdateSchema = itemCategoryCreateSchema.partial();
 
 const roleCreateSchema = z.object({
   name: z.string().min(1),
@@ -178,6 +185,91 @@ adminRouter.patch('/designations/:id', async (req, res, next) => {
     });
     res.json({ data: updated });
   } catch (error) {
+    next(error);
+  }
+});
+
+adminRouter.get('/item-categories', async (req, res) => {
+  const itemCategories = await prisma.itemCategory.findMany({
+    where: { companyId: req.auth!.companyId! },
+    orderBy: [{ itemType: 'asc' }, { nameNormalized: 'asc' }],
+  });
+  res.json({
+    data: itemCategories.map((category) => ({
+      ...category,
+      itemType: category.itemType === ItemType.RAW ? 'raw' : 'finished',
+    })),
+  });
+});
+
+adminRouter.post('/item-categories', async (req, res, next) => {
+  try {
+    const payload = itemCategoryCreateSchema.parse(req.body);
+    const itemCategory = await prisma.itemCategory.create({
+      data: {
+        companyId: req.auth!.companyId!,
+        name: payload.name.trim(),
+        nameNormalized: normalizeLookupValue(payload.name),
+        itemType: payload.itemType === 'raw' ? ItemType.RAW : ItemType.FINISHED,
+        isActive: payload.isActive ?? true,
+      },
+    });
+    res.status(201).json({
+      data: {
+        ...itemCategory,
+        itemType: itemCategory.itemType === ItemType.RAW ? 'raw' : 'finished',
+      },
+    });
+  } catch (error) {
+    try {
+      mapUniqueConstraintError(
+        error,
+        {
+          nameNormalized: 'Category already exists for this item type',
+        },
+        'Category already exists for this item type',
+      );
+    } catch (mappedError) {
+      return next(mappedError);
+    }
+    next(error);
+  }
+});
+
+adminRouter.patch('/item-categories/:id', async (req, res, next) => {
+  try {
+    const payload = itemCategoryUpdateSchema.parse(req.body);
+    const itemCategory = await prisma.itemCategory.findFirst({
+      where: { id: req.params.id, companyId: req.auth!.companyId! },
+    });
+    if (!itemCategory) throw new AppError(404, 'Item category not found');
+
+    const updated = await prisma.itemCategory.update({
+      where: { id: itemCategory.id },
+      data: {
+        ...(payload.name ? { name: payload.name.trim(), nameNormalized: normalizeLookupValue(payload.name) } : {}),
+        ...(payload.itemType ? { itemType: payload.itemType === 'raw' ? ItemType.RAW : ItemType.FINISHED } : {}),
+        ...(payload.isActive !== undefined ? { isActive: payload.isActive } : {}),
+      },
+    });
+    res.json({
+      data: {
+        ...updated,
+        itemType: updated.itemType === ItemType.RAW ? 'raw' : 'finished',
+      },
+    });
+  } catch (error) {
+    try {
+      mapUniqueConstraintError(
+        error,
+        {
+          nameNormalized: 'Category already exists for this item type',
+        },
+        'Category already exists for this item type',
+      );
+    } catch (mappedError) {
+      return next(mappedError);
+    }
     next(error);
   }
 });

@@ -100,6 +100,10 @@ enum QualityClosureDecision {
   REJECT
 }
 
+enum QualityRequestSourceType {
+  SAMPLING
+}
+
 model Company {
   id              String           @id @default(cuid())
   name            String
@@ -117,6 +121,7 @@ model Company {
   rolePermissions RolePermission[]
   parties         Party[]
   items           Item[]
+  itemCategories  ItemCategory[]
   purchaseGinSequence   Int               @default(0)
   productionSequence    Int               @default(0)
   mrsSequence           Int               @default(0)
@@ -268,7 +273,8 @@ model Item {
   sku                   String?
   skuNormalized         String?
   itemType              ItemType
-  category              String?
+  categoryId            String?
+  categoryMaster        ItemCategory? @relation("ItemCategoryItems", fields: [categoryId], references: [id], onDelete: SetNull)
   baseUnit              String
   hsnCode               String?
   gstRate               Decimal   @default(0) @db.Decimal(5, 2)
@@ -280,6 +286,7 @@ model Item {
   materialRequisitionItems MaterialRequisitionItem[]
   stockMovementItems    StockMovementItem[]
   stockLedgerEntries    StockLedgerEntry[]
+  qualityRequests       QualityRequest[]
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 
@@ -287,8 +294,26 @@ model Item {
   @@unique([companyId, tallyNameNormalized])
   @@unique([companyId, skuNormalized])
   @@index([companyId, isActive, itemType, storeNameNormalized])
-  @@index([companyId, category])
+  @@index([companyId, categoryId])
   @@index([companyId, baseUnit])
+  @@index([companyId, createdAt])
+  @@index([companyId, updatedAt])
+}
+
+model ItemCategory {
+  id             String    @id @default(cuid())
+  companyId       String
+  company         Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name            String
+  nameNormalized  String
+  itemType        ItemType
+  isActive        Boolean   @default(true)
+  items           Item[]    @relation("ItemCategoryItems")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([companyId, itemType, nameNormalized])
+  @@index([companyId, itemType, isActive, nameNormalized])
   @@index([companyId, createdAt])
   @@index([companyId, updatedAt])
 }
@@ -311,6 +336,10 @@ model PurchaseGin {
   preparedBy          String?
   sanctionedBy        String?
   authorizedSignatory String?
+  totalTaxableValue   Decimal           @default(0) @db.Decimal(18, 2)
+  totalCgstAmount     Decimal           @default(0) @db.Decimal(18, 2)
+  totalSgstAmount     Decimal           @default(0) @db.Decimal(18, 2)
+  totalIgstAmount     Decimal           @default(0) @db.Decimal(18, 2)
   totalAmount         Decimal           @db.Decimal(18, 2)
   totalAcceptedQty    Decimal           @db.Decimal(18, 3)
   totalRejectedQty    Decimal           @db.Decimal(18, 3)
@@ -342,9 +371,17 @@ model PurchaseGinItem {
   acceptedQty   Decimal     @db.Decimal(18, 3)
   rejectedQty   Decimal     @db.Decimal(18, 3)
   batchNo       String
-  mfgDate       DateTime    @db.Date
-  expiryDate    DateTime    @db.Date
-  rate          Decimal     @db.Decimal(18, 2)
+  mfgDate       String?
+  expiryDate    String?
+  rate          Decimal     @db.Decimal(18, 4)
+  taxableValue  Decimal     @default(0) @db.Decimal(18, 2)
+  cgstRate      Decimal     @default(0) @db.Decimal(5, 2)
+  cgstAmount    Decimal     @default(0) @db.Decimal(18, 2)
+  sgstRate      Decimal     @default(0) @db.Decimal(5, 2)
+  sgstAmount    Decimal     @default(0) @db.Decimal(18, 2)
+  igstRate      Decimal     @default(0) @db.Decimal(5, 2)
+  igstAmount    Decimal     @default(0) @db.Decimal(18, 2)
+  lineTotalAmount Decimal   @default(0) @db.Decimal(18, 2)
   amount        Decimal     @db.Decimal(18, 2)
   remarks       String?
   createdAt     DateTime    @default(now())
@@ -494,11 +531,11 @@ model StockLedgerEntry {
   itemName      String
   itemCategory  ItemType
   batchNo       String
-  mfgDate       DateTime            @db.Date
-  expiryDate    DateTime            @db.Date
+  mfgDate       String?
+  expiryDate    String?
   receiptQty    Decimal             @db.Decimal(18, 3)
   issueQty      Decimal             @db.Decimal(18, 3)
-  rate          Decimal             @db.Decimal(18, 2)
+  rate          Decimal             @db.Decimal(18, 4)
   remarks       String?
   createdAt     DateTime            @default(now())
   updatedAt     DateTime            @updatedAt
@@ -537,6 +574,7 @@ model ProductionBatch {
   materialRequisitions MaterialRequisition[]
   stockMovements StockMovement[]
   stockLedgerEntries StockLedgerEntry[]
+  qualityRequests   QualityRequest[]
   createdAt      DateTime             @default(now())
   updatedAt      DateTime             @updatedAt
 
@@ -621,6 +659,7 @@ model StockMovement {
   remarks          String?
   items            StockMovementItem[]
   stockLedgerEntries StockLedgerEntry[]
+  qualityRequests  QualityRequest[]
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
 
@@ -643,10 +682,11 @@ model StockMovementItem {
   batchNo         String
   availableQty    Decimal       @db.Decimal(18, 3)
   quantity        Decimal       @db.Decimal(18, 3)
-  mfgDate         DateTime      @db.Date
-  expiryDate      DateTime      @db.Date
+  mfgDate         String?
+  expiryDate      String?
   requestedQty    Decimal?      @db.Decimal(18, 3)
   remarks         String?
+  qualityRequests QualityRequest[]
   createdAt       DateTime      @default(now())
 
   @@unique([stockMovementId, lineNo])
@@ -658,6 +698,15 @@ model QualityRequest {
   id              String                 @id @default(cuid())
   companyId       String
   company         Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  sourceType      QualityRequestSourceType?
+  stockMovementId String?
+  stockMovement   StockMovement?         @relation(fields: [stockMovementId], references: [id], onDelete: SetNull)
+  stockMovementItemId String?
+  stockMovementItem StockMovementItem?   @relation(fields: [stockMovementItemId], references: [id], onDelete: SetNull)
+  itemId          String?
+  item            Item?                  @relation(fields: [itemId], references: [id], onDelete: SetNull)
+  productionBatchId String?
+  productionBatch ProductionBatch?       @relation(fields: [productionBatchId], references: [id], onDelete: SetNull)
   requestNo       String
   requestSequence Int
   date            DateTime               @db.Date
@@ -685,6 +734,10 @@ model QualityRequest {
   @@index([companyId, status, date])
   @@index([companyId, batchNo, date])
   @@index([companyId, itemName, date])
+  @@index([companyId, sourceType, date])
+  @@index([companyId, stockMovementId, date])
+  @@index([companyId, productionBatchId, date])
+  @@index([companyId, itemId, date])
 }
 
 model RefreshToken {

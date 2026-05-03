@@ -1,5 +1,5 @@
 import { ItemType, Prisma, StockLedgerEntryType, type PurchaseGin, type PurchaseGinItem, type StockLedgerEntry } from '@prisma/client';
-import { decimalToNumber, toNullableString } from '../shared/masterData';
+import { decimalToNumber, normalizeDateText, toNullableString } from '../shared/masterData';
 import type { PurchaseGinListQuery } from './purchases.schemas';
 
 const apiItemTypeMap = {
@@ -47,6 +47,10 @@ export function toAmountDecimal(value: number) {
   return new Prisma.Decimal(value.toFixed(2));
 }
 
+export function toRateDecimal(value: number) {
+  return new Prisma.Decimal(value.toFixed(4));
+}
+
 export function serializePurchaseGinItem(item: PurchaseGinItem) {
   return {
     id: item.id,
@@ -61,9 +65,17 @@ export function serializePurchaseGinItem(item: PurchaseGinItem) {
     acceptedQty: decimalToNumber(item.acceptedQty),
     rejectedQty: decimalToNumber(item.rejectedQty),
     batchNo: item.batchNo,
-    mfgDate: formatDateOnly(item.mfgDate),
-    expiryDate: formatDateOnly(item.expiryDate),
+    mfgDate: item.mfgDate ?? '',
+    expiryDate: item.expiryDate ?? '',
     rate: decimalToNumber(item.rate),
+    taxableValue: decimalToNumber(item.taxableValue),
+    cgstRate: decimalToNumber(item.cgstRate),
+    cgstAmount: decimalToNumber(item.cgstAmount),
+    sgstRate: decimalToNumber(item.sgstRate),
+    sgstAmount: decimalToNumber(item.sgstAmount),
+    igstRate: decimalToNumber(item.igstRate),
+    igstAmount: decimalToNumber(item.igstAmount),
+    lineTotalAmount: decimalToNumber(item.lineTotalAmount),
     amount: decimalToNumber(item.amount),
     remarks: item.remarks ?? '',
   };
@@ -79,6 +91,10 @@ export function serializePurchaseGinList(record: PurchaseGinListRecord) {
     billNo: record.billNo,
     gateEntryNo: record.gateEntryNo,
     entryDate: formatDateOnly(record.entryDate),
+    totalTaxableValue: decimalToNumber(record.totalTaxableValue),
+    totalCgstAmount: decimalToNumber(record.totalCgstAmount),
+    totalSgstAmount: decimalToNumber(record.totalSgstAmount),
+    totalIgstAmount: decimalToNumber(record.totalIgstAmount),
     totalAmount: decimalToNumber(record.totalAmount),
     totalAcceptedQty: decimalToNumber(record.totalAcceptedQty),
     totalRejectedQty: decimalToNumber(record.totalRejectedQty),
@@ -103,6 +119,10 @@ export function serializePurchaseGinDetail(record: PurchaseGinDetailRecord) {
     preparedBy: record.preparedBy ?? '',
     sanctionedBy: record.sanctionedBy ?? '',
     authorizedSignatory: record.authorizedSignatory ?? '',
+    totalTaxableValue: decimalToNumber(record.totalTaxableValue),
+    totalCgstAmount: decimalToNumber(record.totalCgstAmount),
+    totalSgstAmount: decimalToNumber(record.totalSgstAmount),
+    totalIgstAmount: decimalToNumber(record.totalIgstAmount),
     totalAmount: decimalToNumber(record.totalAmount),
     totalAcceptedQty: decimalToNumber(record.totalAcceptedQty),
     totalRejectedQty: decimalToNumber(record.totalRejectedQty),
@@ -201,8 +221,8 @@ export function serializeLedgerEntry(entry: StockLedgerEntry) {
     itemName: entry.itemName,
     itemCategory: entry.itemCategory,
     batchNo: entry.batchNo,
-    mfgDate: formatDateOnly(entry.mfgDate),
-    expiryDate: formatDateOnly(entry.expiryDate),
+    mfgDate: entry.mfgDate ?? '',
+    expiryDate: entry.expiryDate ?? '',
     receiptQty,
     issueQty,
     rate,
@@ -230,8 +250,8 @@ export function buildLedgerCreateData(input: {
   itemName: string;
   itemCategory: ItemType;
   batchNo: string;
-  mfgDate: string;
-  expiryDate: string;
+  mfgDate?: string | null;
+  expiryDate?: string | null;
   receiptQty: number;
   rate: number;
   remarks?: string;
@@ -247,11 +267,11 @@ export function buildLedgerCreateData(input: {
     itemName: input.itemName,
     itemCategory: input.itemCategory,
     batchNo: input.batchNo,
-    mfgDate: parseDateOnly(input.mfgDate),
-    expiryDate: parseDateOnly(input.expiryDate),
+    mfgDate: normalizeDateText(input.mfgDate),
+    expiryDate: normalizeDateText(input.expiryDate),
     receiptQty: toQtyDecimal(input.receiptQty),
     issueQty: toQtyDecimal(0),
-    rate: toAmountDecimal(input.rate),
+    rate: toRateDecimal(input.rate),
     remarks: toNullableString(input.remarks),
   };
 }

@@ -9,6 +9,24 @@ type PrismaInstance = typeof import('../src/lib/prisma').prisma;
 type HashPassword = typeof import('../src/lib/password').hashPassword;
 type CreateAccessToken = typeof import('../src/lib/tokens').createAccessToken;
 
+type PurchaseLinePayload = {
+  itemId: string;
+  ulpQty: number;
+  billQty: number;
+  receivedQty: number;
+  acceptedQty: number;
+  rejectedQty: number;
+  batchNo: string;
+  mfgDate: string;
+  expiryDate: string;
+  rate: number;
+  taxableValue?: number;
+  cgstRate?: number;
+  sgstRate?: number;
+  igstRate?: number;
+  remarks?: string;
+};
+
 type PurchasePayload = {
   vendorId: string;
   challanNo: string;
@@ -20,19 +38,7 @@ type PurchasePayload = {
   preparedBy?: string;
   sanctionedBy?: string;
   authorizedSignatory?: string;
-  items: Array<{
-    itemId: string;
-    ulpQty: number;
-    billQty: number;
-    receivedQty: number;
-    acceptedQty: number;
-    rejectedQty: number;
-    batchNo: string;
-    mfgDate: string;
-    expiryDate: string;
-    rate: number;
-    remarks?: string;
-  }>;
+  items: PurchaseLinePayload[];
 };
 
 describeIfDb('purchase GIN integration', () => {
@@ -244,7 +250,6 @@ describeIfDb('purchase GIN integration', () => {
         sku: input.sku,
         skuNormalized: input.sku.toLowerCase(),
         itemType: input.itemType ?? ItemType.RAW,
-        category: 'Raw',
         baseUnit: 'kg',
         hsnCode: '7214',
         gstRate: 18,
@@ -253,8 +258,33 @@ describeIfDb('purchase GIN integration', () => {
     });
   }
 
-  function buildPurchasePayload(vendorId: string, itemId: string, overrides?: Partial<PurchasePayload>): PurchasePayload {
+  function withComputedTaxFields(item: PurchaseLinePayload) {
     return {
+      ...item,
+      taxableValue: item.taxableValue ?? Number((item.acceptedQty * item.rate).toFixed(2)),
+      cgstRate: item.cgstRate ?? 0,
+      sgstRate: item.sgstRate ?? 0,
+      igstRate: item.igstRate ?? 0,
+    };
+  }
+
+  function buildPurchasePayload(vendorId: string, itemId: string, overrides?: Partial<PurchasePayload>): PurchasePayload {
+    const baseItems = [
+      withComputedTaxFields({
+        itemId,
+        ulpQty: 10,
+        billQty: 10,
+        receivedQty: 10,
+        acceptedQty: 8,
+        rejectedQty: 2,
+        batchNo: 'B-001',
+        mfgDate: '2026-03-01',
+        expiryDate: '2027-03-01',
+        rate: 50,
+        remarks: 'Minor damage',
+      }),
+    ];
+    const merged = {
       vendorId,
       challanNo: 'CH-001',
       challanDate: '2026-04-01',
@@ -265,22 +295,12 @@ describeIfDb('purchase GIN integration', () => {
       preparedBy: 'Stores',
       sanctionedBy: 'QA Lead',
       authorizedSignatory: 'Plant Head',
-      items: [
-        {
-          itemId,
-          ulpQty: 10,
-          billQty: 10,
-          receivedQty: 10,
-          acceptedQty: 8,
-          rejectedQty: 2,
-          batchNo: 'B-001',
-          mfgDate: '2026-03-01',
-          expiryDate: '2027-03-01',
-          rate: 50,
-          remarks: 'Minor damage',
-        },
-      ],
       ...overrides,
+    };
+
+    return {
+      ...merged,
+      items: (merged.items ?? baseItems).map(withComputedTaxFields),
     };
   }
 

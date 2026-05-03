@@ -15,6 +15,7 @@ import {
   serializePurchaseGinList,
   toAmountDecimal,
   toQtyDecimal,
+  toRateDecimal,
 } from './purchases.utils';
 
 export const purchasesRouter = Router();
@@ -151,7 +152,27 @@ purchasesRouter.post('/', requirePermission('purchases.create'), async (req, res
       }
     });
 
-    const totalAmount = payload.items.reduce((sum, line) => sum + (line.acceptedQty * line.rate), 0);
+    const lineCalculations = payload.items.map((line) => {
+      const taxableValue = Number(line.taxableValue.toFixed(2));
+      const cgstAmount = Number(((taxableValue * line.cgstRate) / 100).toFixed(2));
+      const sgstAmount = Number(((taxableValue * line.sgstRate) / 100).toFixed(2));
+      const igstAmount = Number(((taxableValue * line.igstRate) / 100).toFixed(2));
+      const lineTotalAmount = Number((taxableValue + cgstAmount + sgstAmount + igstAmount).toFixed(2));
+
+      return {
+        taxableValue,
+        cgstAmount,
+        sgstAmount,
+        igstAmount,
+        lineTotalAmount,
+      };
+    });
+
+    const totalTaxableValue = lineCalculations.reduce((sum, line) => sum + line.taxableValue, 0);
+    const totalCgstAmount = lineCalculations.reduce((sum, line) => sum + line.cgstAmount, 0);
+    const totalSgstAmount = lineCalculations.reduce((sum, line) => sum + line.sgstAmount, 0);
+    const totalIgstAmount = lineCalculations.reduce((sum, line) => sum + line.igstAmount, 0);
+    const totalAmount = lineCalculations.reduce((sum, line) => sum + line.lineTotalAmount, 0);
     const totalAcceptedQty = payload.items.reduce((sum, line) => sum + line.acceptedQty, 0);
     const totalRejectedQty = payload.items.reduce((sum, line) => sum + line.rejectedQty, 0);
 
@@ -187,12 +208,17 @@ purchasesRouter.post('/', requirePermission('purchases.create'), async (req, res
           preparedBy: toNullableString(payload.preparedBy),
           sanctionedBy: toNullableString(payload.sanctionedBy),
           authorizedSignatory: toNullableString(payload.authorizedSignatory),
+          totalTaxableValue: toAmountDecimal(totalTaxableValue),
+          totalCgstAmount: toAmountDecimal(totalCgstAmount),
+          totalSgstAmount: toAmountDecimal(totalSgstAmount),
+          totalIgstAmount: toAmountDecimal(totalIgstAmount),
           totalAmount: toAmountDecimal(totalAmount),
           totalAcceptedQty: toQtyDecimal(totalAcceptedQty),
           totalRejectedQty: toQtyDecimal(totalRejectedQty),
           items: {
             create: payload.items.map((line, index) => {
               const item = itemMap.get(line.itemId)!;
+              const taxLine = lineCalculations[index];
               return {
                 itemId: item.id,
                 lineNo: index + 1,
@@ -205,10 +231,18 @@ purchasesRouter.post('/', requirePermission('purchases.create'), async (req, res
                 acceptedQty: toQtyDecimal(line.acceptedQty),
                 rejectedQty: toQtyDecimal(line.rejectedQty),
                 batchNo: line.batchNo.trim(),
-                mfgDate: parseDateOnly(line.mfgDate),
-                expiryDate: parseDateOnly(line.expiryDate),
-                rate: toAmountDecimal(line.rate),
-                amount: toAmountDecimal(line.acceptedQty * line.rate),
+                mfgDate: line.mfgDate ?? null,
+                expiryDate: line.expiryDate ?? null,
+                rate: toRateDecimal(line.rate),
+                taxableValue: toAmountDecimal(taxLine.taxableValue),
+                cgstRate: toAmountDecimal(line.cgstRate),
+                cgstAmount: toAmountDecimal(taxLine.cgstAmount),
+                sgstRate: toAmountDecimal(line.sgstRate),
+                sgstAmount: toAmountDecimal(taxLine.sgstAmount),
+                igstRate: toAmountDecimal(line.igstRate),
+                igstAmount: toAmountDecimal(taxLine.igstAmount),
+                lineTotalAmount: toAmountDecimal(taxLine.lineTotalAmount),
+                amount: toAmountDecimal(taxLine.taxableValue),
                 remarks: toNullableString(line.remarks),
               };
             }),

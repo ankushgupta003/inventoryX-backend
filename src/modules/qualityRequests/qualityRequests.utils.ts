@@ -1,4 +1,4 @@
-import { type QualityRequest } from '@prisma/client';
+import { ItemType, type Item, type ProductionBatch, type QualityRequest, type StockMovement } from '@prisma/client';
 import { decimalToNumber } from '../shared/masterData';
 import { formatDateOnly } from '../production/production.utils';
 
@@ -8,9 +8,24 @@ export function formatQualityRequestNo(sequence: number) {
 
 const toLowerCaseValue = (value: string | null | undefined) => value?.toLowerCase() ?? undefined;
 
-export function serializeQualityRequest(record: QualityRequest) {
+type QualityRequestRecord = QualityRequest & {
+  item?: Pick<Item, 'itemType'> | null;
+  stockMovement?: Pick<StockMovement, 'movementNo'> | null;
+  productionBatch?: Pick<ProductionBatch, 'batchNo' | 'productionNo'> | null;
+};
+
+export function serializeQualityRequest(record: QualityRequestRecord) {
   return {
     id: record.id,
+    sourceType: toLowerCaseValue(record.sourceType),
+    stockMovementId: record.stockMovementId ?? '',
+    stockMovementItemId: record.stockMovementItemId ?? '',
+    stockMovementNo: record.stockMovement?.movementNo ?? '',
+    itemId: record.itemId ?? '',
+    itemType: record.item ? (record.item.itemType === ItemType.RAW ? 'raw' : 'finished') : undefined,
+    productionBatchId: record.productionBatchId ?? '',
+    productionBatchNo: record.productionBatch?.batchNo ?? '',
+    productionNo: record.productionBatch?.productionNo ?? '',
     requestNo: record.requestNo,
     date: formatDateOnly(record.date),
     itemName: record.itemName,

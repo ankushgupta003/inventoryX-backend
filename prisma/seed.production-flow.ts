@@ -361,7 +361,6 @@ function toItemData(companyId: string, item: SeedItem): Prisma.ItemUncheckedCrea
     sku: item.sku,
     skuNormalized: item.sku.toLowerCase(),
     itemType: item.itemType,
-    category: item.category,
     baseUnit: item.baseUnit,
     hsnCode: item.hsnCode,
     gstRate: new Prisma.Decimal(item.gstRate.toFixed(2)),

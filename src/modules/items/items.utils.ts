@@ -1,4 +1,4 @@
-import { ItemType, Prisma, type Item } from '@prisma/client';
+import { ItemType, Prisma, type Item, type ItemCategory } from '@prisma/client';
 import {
   decimalToNumber,
   normalizeLookupValue,
@@ -16,24 +16,40 @@ const apiItemTypeMap = {
   [ItemType.FINISHED]: 'finished',
 } as const;
 
+type ItemWithCategory = Item & {
+  categoryMaster?: Pick<ItemCategory, 'id' | 'name' | 'isActive' | 'itemType'> | null;
+};
+
 export function toItemType(value: keyof typeof itemTypeMap) {
   return itemTypeMap[value];
 }
 
-export function serializeItem(item: Item) {
+export function serializeItem(item: ItemWithCategory) {
   return {
     id: item.id,
     storeName: item.storeName,
     tallyName: item.tallyName,
     sku: item.sku ?? '',
     itemType: apiItemTypeMap[item.itemType],
-    category: item.category ?? '',
+    categoryId: item.categoryId ?? '',
+    category: item.categoryMaster?.name ?? '',
     baseUnit: item.baseUnit,
     hsnCode: item.hsnCode ?? '',
     gstRate: decimalToNumber(item.gstRate),
     isActive: item.isActive,
     createdAt: item.createdAt.toISOString(),
     updatedAt: item.updatedAt.toISOString(),
+  };
+}
+
+export function serializeItemCategory(category: ItemCategory) {
+  return {
+    id: category.id,
+    name: category.name,
+    itemType: apiItemTypeMap[category.itemType],
+    isActive: category.isActive,
+    createdAt: category.createdAt.toISOString(),
+    updatedAt: category.updatedAt.toISOString(),
   };
 }
 
@@ -47,7 +63,7 @@ export function buildItemCreateData(companyId: string, payload: ItemUpsertInput)
     sku: toNullableString(payload.sku),
     skuNormalized: payload.sku ? payload.sku.toLowerCase() : null,
     itemType: toItemType(payload.itemType),
-    category: toNullableString(payload.category),
+    categoryId: toNullableString(payload.categoryId),
     baseUnit: payload.baseUnit,
     hsnCode: toNullableString(payload.hsnCode),
     gstRate: new Prisma.Decimal(payload.gstRate.toFixed(2)),
@@ -61,7 +77,7 @@ export function buildItemWhere(companyId: string, query: ItemListQuery): Prisma.
     ...(query.status === 'active' ? { isActive: true } : {}),
     ...(query.status === 'inactive' ? { isActive: false } : {}),
     ...(query.itemType !== 'all' ? { itemType: toItemType(query.itemType) } : {}),
-    ...(query.category ? { category: { equals: query.category, mode: 'insensitive' } } : {}),
+    ...(query.category ? { categoryMaster: { name: { equals: query.category, mode: 'insensitive' } } } : {}),
     ...(query.baseUnit ? { baseUnit: query.baseUnit } : {}),
     ...(query.search
       ? {
@@ -70,7 +86,7 @@ export function buildItemWhere(companyId: string, query: ItemListQuery): Prisma.
             { tallyName: { contains: query.search, mode: 'insensitive' } },
             { sku: { contains: query.search, mode: 'insensitive' } },
             { hsnCode: { contains: query.search, mode: 'insensitive' } },
-            { category: { contains: query.search, mode: 'insensitive' } },
+            { categoryMaster: { name: { contains: query.search, mode: 'insensitive' } } },
           ],
         }
       : {}),

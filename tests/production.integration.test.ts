@@ -172,7 +172,6 @@ describeIfDb('production lifecycle integration', () => {
         sku: input.sku,
         skuNormalized: input.sku.toLowerCase(),
         itemType: input.itemType,
-        category: input.itemType === ItemType.RAW ? 'Raw' : 'Finished',
         baseUnit: input.baseUnit ?? 'kg',
         hsnCode: input.itemType === ItemType.RAW ? '7214' : '3004',
         gstRate: 18,

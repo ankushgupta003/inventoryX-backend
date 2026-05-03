@@ -1,4 +1,11 @@
-import { Prisma, QualityClosureDecision, QualityIssueType, QualityRequestStatus, QualityTestResult } from '@prisma/client';
+import {
+  Prisma,
+  QualityClosureDecision,
+  QualityIssueType,
+  QualityRequestSourceType,
+  QualityRequestStatus,
+  QualityTestResult,
+} from '@prisma/client';
 import { Router } from 'express';
 import { AppError } from '../../errors/AppError';
 import { prisma } from '../../lib/prisma';
@@ -15,12 +22,32 @@ import { formatQualityRequestNo, serializeQualityRequest } from './qualityReques
 
 export const qualityRequestsRouter = Router();
 
+const qualityRequestInclude = {
+  item: {
+    select: {
+      itemType: true,
+    },
+  },
+  stockMovement: {
+    select: {
+      movementNo: true,
+    },
+  },
+  productionBatch: {
+    select: {
+      batchNo: true,
+      productionNo: true,
+    },
+  },
+} as const;
+
 async function findQualityRequestOrThrow(companyId: string, id: string) {
   const record = await prisma.qualityRequest.findFirst({
     where: {
       id,
       companyId,
     },
+    include: qualityRequestInclude,
   });
 
   if (!record) {
@@ -38,6 +65,8 @@ qualityRequestsRouter.get('/', requirePermission('quality_requests.view'), async
       where: {
         companyId,
         ...(query.status !== 'all' ? { status: query.status.toUpperCase() as QualityRequestStatus } : {}),
+        ...(query.sourceType !== 'all' ? { sourceType: query.sourceType.toUpperCase() as QualityRequestSourceType } : {}),
+        ...(query.stockMovementId ? { stockMovementId: query.stockMovementId } : {}),
         ...(query.search
           ? {
               OR: [
@@ -49,6 +78,7 @@ qualityRequestsRouter.get('/', requirePermission('quality_requests.view'), async
             }
           : {}),
       },
+      include: qualityRequestInclude,
       orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
     });
 
@@ -133,6 +163,7 @@ qualityRequestsRouter.patch('/:id/approve', requirePermission('quality_requests.
         approvedBy: payload.approvedBy ?? req.auth!.fullName,
         approvalRemarks: payload.approvalRemarks ?? null,
       },
+      include: qualityRequestInclude,
     });
 
     res.json({ data: serializeQualityRequest(updated) });
@@ -160,6 +191,7 @@ qualityRequestsRouter.post('/:id/report', requirePermission('quality_requests.ap
         testResult: payload.result.toUpperCase() as QualityTestResult,
         attachments: payload.attachments,
       },
+      include: qualityRequestInclude,
     });
 
     res.json({ data: serializeQualityRequest(updated) });
@@ -185,6 +217,7 @@ qualityRequestsRouter.patch('/:id/close', requirePermission('quality_requests.ap
         closureDecision: payload.decision.toUpperCase() as QualityClosureDecision,
         closureRemarks: payload.remarks ?? null,
       },
+      include: qualityRequestInclude,
     });
 
     res.json({ data: serializeQualityRequest(updated) });

@@ -23,13 +23,14 @@ export const ITEM_BASE_UNITS = [
 ] as const;
 
 export const itemTypeSchema = z.enum(['raw', 'finished']);
+export const itemTypeFilterSchema = z.enum(['all', 'raw', 'finished']);
 
 export const itemUpsertSchema = z.object({
   storeName: requiredTrimmedString(100, 'Store name is required'),
   tallyName: requiredTrimmedString(100, 'Tally name is required'),
   sku: optionalUppercaseFreeform(50),
   itemType: itemTypeSchema,
-  category: optionalTrimmedString(50),
+  categoryId: optionalTrimmedString(100),
   baseUnit: z.enum(ITEM_BASE_UNITS),
   hsnCode: optionalUppercaseFreeform(20),
   gstRate: z.coerce.number().min(0, 'Min 0').max(100, 'Max 100'),
@@ -43,7 +44,7 @@ export const itemStatusSchema = z.object({
 export const itemListQuerySchema = z.object({
   search: z.preprocess((value) => (typeof value === 'string' ? value.trim() : value), z.string().max(150).default('')),
   status: statusFilterSchema.default('all'),
-  itemType: z.enum(['all', 'raw', 'finished']).default('all'),
+  itemType: itemTypeFilterSchema.default('all'),
   category: optionalTrimmedString(50).default(''),
   baseUnit: z.preprocess(
     (value) => {
@@ -60,5 +61,10 @@ export const itemListQuerySchema = z.object({
   paginate: z.preprocess(parsePaginateFlag, z.boolean().default(true)),
 });
 
+export const itemCategoryOptionsQuerySchema = z.object({
+  itemType: itemTypeFilterSchema.default('all'),
+});
+
 export type ItemUpsertInput = z.infer<typeof itemUpsertSchema>;
 export type ItemListQuery = z.infer<typeof itemListQuerySchema>;
+export type ItemCategoryOptionsQuery = z.infer<typeof itemCategoryOptionsQuerySchema>;

@@ -7,7 +7,7 @@ import {
   type StockMovement,
   type StockMovementItem,
 } from '@prisma/client';
-import { decimalToNumber, toNullableString } from '../shared/masterData';
+import { decimalToNumber, normalizeDateText, toNullableString } from '../shared/masterData';
 
 export function parseDateOnly(value: string) {
   return new Date(`${value}T00:00:00.000Z`);
@@ -24,6 +24,10 @@ export function toQtyDecimal(value: number) {
 
 export function toAmountDecimal(value: number) {
   return new Prisma.Decimal(value.toFixed(2));
+}
+
+export function toRateDecimal(value: number) {
+  return new Prisma.Decimal(value.toFixed(4));
 }
 
 export function formatProductionNo(sequence: number) {
@@ -97,8 +101,8 @@ export async function loadLedgerBatchSnapshots(
       itemId: row.itemId,
       batchNo: row.batchNo,
       availableQty: (previous?.availableQty ?? 0) + decimalToNumber(row.receiptQty) - decimalToNumber(row.issueQty),
-      mfgDate: formatDateOnly(row.mfgDate) || previous?.mfgDate || '',
-      expiryDate: formatDateOnly(row.expiryDate) || previous?.expiryDate || '',
+      mfgDate: row.mfgDate ?? previous?.mfgDate ?? '',
+      expiryDate: row.expiryDate ?? previous?.expiryDate ?? '',
       rate: decimalToNumber(row.rate) || previous?.rate || 0,
     });
   });
@@ -122,6 +126,13 @@ export type StockMovementRecord = StockMovement & {
     items: MaterialRequisitionItem[];
   }) | null;
   items: StockMovementItem[];
+  qualityRequests: Array<{
+    id: string;
+    requestNo: string;
+    status: string;
+    itemName: string;
+    batchNo: string;
+  }>;
 };
 
 export type BmrPayload = {
@@ -298,8 +309,8 @@ function serializeStockMovementItem(
     issuedQty: movementType === 'ISSUE' ? issuedQty : 0,
     remainingQty:
       movementType === 'ISSUE' ? Math.max(0, Number((requestedQty - issuedQty).toFixed(3))) : undefined,
-    mfgDate: formatDateOnly(item.mfgDate),
-    expiryDate: formatDateOnly(item.expiryDate),
+    mfgDate: item.mfgDate ?? '',
+    expiryDate: item.expiryDate ?? '',
     remarks: item.remarks ?? '',
   };
 }
@@ -337,6 +348,13 @@ export function serializeStockMovement(record: StockMovementRecord) {
     issuedBy: record.issuedBy ?? '',
     sampleDrawnBy: record.sampleDrawnBy ?? '',
     remarks: record.remarks ?? '',
+    qualityRequests: record.qualityRequests.map((qualityRequest) => ({
+      id: qualityRequest.id,
+      requestNo: qualityRequest.requestNo,
+      status: qualityRequest.status.toLowerCase(),
+      itemName: qualityRequest.itemName,
+      batchNo: qualityRequest.batchNo,
+    })),
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
   };
@@ -352,8 +370,8 @@ export function buildLedgerEntryData(input: {
   itemName: string;
   itemCategory: 'RAW' | 'FINISHED';
   batchNo: string;
-  mfgDate: string;
-  expiryDate: string;
+  mfgDate?: string | null;
+  expiryDate?: string | null;
   receiptQty?: number;
   issueQty?: number;
   rate?: number;
@@ -375,11 +393,11 @@ export function buildLedgerEntryData(input: {
     itemName: input.itemName,
     itemCategory: input.itemCategory,
     batchNo: input.batchNo,
-    mfgDate: parseDateOnly(input.mfgDate),
-    expiryDate: parseDateOnly(input.expiryDate),
+    mfgDate: normalizeDateText(input.mfgDate),
+    expiryDate: normalizeDateText(input.expiryDate),
     receiptQty: toQtyDecimal(input.receiptQty ?? 0),
     issueQty: toQtyDecimal(input.issueQty ?? 0),
-    rate: toAmountDecimal(input.rate ?? 0),
+    rate: toRateDecimal(input.rate ?? 0),
     remarks: toNullableString(input.remarks),
   };
 }

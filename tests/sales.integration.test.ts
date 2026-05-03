@@ -148,7 +148,6 @@ describeIfDb('sales PI and invoice integration', () => {
         sku,
         skuNormalized: sku.toLowerCase(),
         itemType: ItemType.FINISHED,
-        category: 'Finished Good',
         baseUnit: 'pcs',
         hsnCode: '380894',
         gstRate: overrides?.gstRate ?? 18,
