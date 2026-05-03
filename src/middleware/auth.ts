@@ -2,7 +2,7 @@ import type { NextFunction, Request, Response } from 'express';
 import { AccountType, CompanyStatus } from '@prisma/client';
 import { AppError } from '../errors/AppError';
 import { prisma } from '../lib/prisma';
-import { verifyAccessToken } from '../lib/tokens';
+import { normalizeTokenError, verifyAccessToken } from '../lib/tokens';
 import { authUserInclude, buildAuthPayload } from '../utils/authPayload';
 
 function getBearerToken(req: Request) {
@@ -44,7 +44,7 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
     req.auth = buildAuthPayload(user);
     next();
   } catch (error) {
-    next(error);
+    next(normalizeTokenError(error, 'access'));
   }
 }
 

@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { AccountType } from '@prisma/client';
 import { env } from '../config/env';
+import { AppError } from '../errors/AppError';
 import { durationToMs } from './time';
 
 type TokenKind = 'access' | 'refresh';
@@ -31,6 +32,22 @@ export function verifyAccessToken(token: string) {
 
 export function verifyRefreshToken(token: string) {
   return jwt.verify(token, env.JWT_REFRESH_SECRET) as AuthTokenPayload;
+}
+
+export function normalizeTokenError(error: unknown, kind: TokenKind) {
+  if (error instanceof AppError) {
+    return error;
+  }
+
+  if (error instanceof jwt.TokenExpiredError) {
+    return new AppError(401, `${kind === 'access' ? 'Access' : 'Refresh'} token expired`);
+  }
+
+  if (error instanceof jwt.JsonWebTokenError || error instanceof jwt.NotBeforeError) {
+    return new AppError(401, `Invalid ${kind} token`);
+  }
+
+  return error;
 }
 
 export function hashToken(token: string) {

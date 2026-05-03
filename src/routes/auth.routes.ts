@@ -8,6 +8,7 @@ import {
   createAccessToken,
   createRefreshToken,
   hashToken,
+  normalizeTokenError,
   refreshTokenExpiryDate,
   verifyRefreshToken,
 } from '../lib/tokens';
@@ -91,7 +92,7 @@ authRouter.post('/super-admin/login', async (req, res, next) => {
     const data = await authenticate(email, password, AccountType.SUPER_ADMIN);
     res.json({ data });
   } catch (error) {
-    next(error);
+    next(normalizeTokenError(error, 'refresh'));
   }
 });
 
